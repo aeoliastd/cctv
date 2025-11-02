@@ -19,6 +19,35 @@ pip install -r requirements.txt
 
 3. Configure your camera settings:
 
+### Setting Up Camera Account (Username/Password)
+
+Before configuring, you need to set up a **Camera Account** in the Tapo app. This is different from your Tapo account login:
+
+**How to set Camera Account in Tapo App:**
+1. Open Tapo app on your mobile device
+2. Tap on your camera to enter Live View
+3. Tap the gear icon (⚙️) at top right → **Device Settings**
+4. Tap **Advanced Settings**
+5. Tap **Camera Account**
+6. Create or view your username and password
+
+**How to find Camera IP Address:**
+1. In Tapo app, go to camera Live View
+2. Tap the gear icon (⚙️) at top right → **Device Settings**
+3. Tap **Device Info** to see the IP address
+
+### Configuration Methods
+
+**Method 1: Using the Setup Script (Recommended)**
+
+Run the interactive setup script which will scan your network and help configure the camera:
+
+```bash
+python test_setup.py
+```
+
+**Method 2: Manual Configuration**
+
 Copy `config.example.json` to `config.json` and update it with your camera's details:
 
 ```bash

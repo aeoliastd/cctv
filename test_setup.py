@@ -43,12 +43,16 @@ def check_port(ip, port, timeout=1):
         return False
 
 
-def check_onvif_service(ip, port, username="admin", password=""):
+def check_onvif_service(ip, port, username="admin", password="", verbose=False):
     """Check if an ONVIF service is available at the given IP and port."""
     try:
+        if verbose:
+            print(f"  Trying port {port}...", end=' ', flush=True)
         camera = ONVIFCamera(ip, port, username, password)
         device_service = camera.create_devicemgmt_service()
         device_info = device_service.GetDeviceInformation()
+        if verbose:
+            print("✓")
         return {
             'ip': ip,
             'port': port,
@@ -59,6 +63,8 @@ def check_onvif_service(ip, port, username="admin", password=""):
             'hardware_id': device_info.HardwareId
         }
     except Exception as e:
+        if verbose:
+            print("✗")
         return None
 
 
@@ -137,7 +143,7 @@ def scan_network_for_cameras(network_start, network_end, ports=[2020, 80, 8080],
     return found_cameras
 
 
-def manual_ip_scan():
+def manual_ip_scan(username="admin", password=""):
     """Allow user to manually enter IP address to scan."""
     print("\n" + "=" * 60)
     print("MANUAL IP SCAN")
@@ -157,15 +163,34 @@ def manual_ip_scan():
     
     ports = [2020, 80, 8080]
     print(f"\nScanning {ip} on ports {ports}...")
+    print(f"Using username: '{username}'")
+    print()
     
+    # Try ONVIF on all ports, even if port scan doesn't detect them as open
+    # Some cameras may not respond to port scans but still have ONVIF
+    found_ports = []
     for port in ports:
-        if check_port(ip, port):
+        port_open = check_port(ip, port)
+        if port_open:
             print(f"  Port {port} is open, checking ONVIF service...")
-            camera_info = check_onvif_service(ip, port)
-            if camera_info:
-                return camera_info
+            found_ports.append(port)
+        else:
+            print(f"  Port {port} appears closed, but trying ONVIF anyway...")
     
-    print("No ONVIF service found at this IP address.")
+    print()
+    print("Checking ONVIF service on all ports...")
+    for port in ports:
+        camera_info = check_onvif_service(ip, port, username, password, verbose=True)
+        if camera_info:
+            print(f"  ✓ Found ONVIF camera on port {port}!")
+            return camera_info
+    
+    print(f"\n✗ No ONVIF service found at {ip} on ports {ports}.")
+    print("Possible reasons:")
+    print("  - Wrong IP address")
+    print("  - Incorrect username/password")
+    print("  - ONVIF not enabled on camera")
+    print("  - Camera uses a different port")
     return None
 
 
@@ -187,7 +212,20 @@ def confirm_camera(camera_info):
     return response == 'y' or response == 'yes'
 
 
-def update_config(camera_ip, camera_port, username, password):
+def load_config():
+    """Load existing config.json if it exists."""
+    config_path = "config.json"
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load existing config.json: {e}")
+            return None
+    return None
+
+
+def update_config(camera_ip=None, camera_port=None, username=None, password=None):
     """Update config.json with camera settings."""
     config_path = "config.json"
     
@@ -202,11 +240,21 @@ def update_config(camera_ip, camera_port, username, password):
                 "display": {"window_name": "Tapo Camera Feed"}
             }
         
-        # Update camera settings
-        config["camera"]["host"] = camera_ip
-        config["camera"]["port"] = camera_port
-        config["camera"]["username"] = username
-        config["camera"]["password"] = password
+        # Update camera settings only if provided
+        if camera_ip is not None:
+            config["camera"]["host"] = camera_ip
+        if camera_port is not None:
+            config["camera"]["port"] = camera_port
+        if username is not None:
+            config["camera"]["username"] = username
+        if password is not None:
+            config["camera"]["password"] = password
+        
+        # Ensure camera section exists
+        if "camera" not in config:
+            config["camera"] = {}
+        if "display" not in config:
+            config["display"] = {"window_name": "Tapo Camera Feed"}
         
         # Save config
         with open(config_path, 'w') as f:
@@ -228,6 +276,51 @@ def main():
     print("=" * 60)
     print()
     
+    # Check for existing config
+    existing_config = load_config()
+    if existing_config and existing_config.get("camera") and existing_config["camera"].get("host"):
+        print("📋 Existing configuration detected in config.json:")
+        print()
+        camera_config = existing_config["camera"]
+        print(f"  Host:      {camera_config.get('host', 'N/A')}")
+        print(f"  Port:      {camera_config.get('port', 'N/A')}")
+        print(f"  Username:  {camera_config.get('username', 'N/A')}")
+        print(f"  Password:  {'*' * len(camera_config.get('password', '')) if camera_config.get('password') else 'N/A'}")
+        print()
+        print("Reusing existing configuration.")
+        print("If you want to reset, delete config.json and run this script again.")
+        print()
+        
+        reuse = input("Use existing configuration? (y/n): ").strip().lower()
+        if reuse == 'y' or reuse == 'yes':
+            print("\n✓ Using existing configuration from config.json")
+            print("You can run: python tapo_camera.py")
+            return
+        else:
+            print("\nStarting new setup...")
+            print()
+    
+    # Show instructions first
+    print("📋 SETUP INSTRUCTIONS:")
+    print()
+    print("Before running the scan, you need to set up a Camera Account in the Tapo app:")
+    print()
+    print("  HOW TO SET CAMERA USERNAME/PASSWORD:")
+    print("  1. Open Tapo app on your mobile device")
+    print("  2. Tap on your camera to enter Live View")
+    print("  3. Tap the gear icon (⚙️) at top right → Device Settings")
+    print("  4. Tap 'Advanced Settings'")
+    print("  5. Tap 'Camera Account'")
+    print("  6. Create or view your username and password")
+    print()
+    print("  HOW TO FIND CAMERA IP ADDRESS:")
+    print("  1. In Tapo app, go to camera Live View")
+    print("  2. Tap the gear icon (⚙️) at top right → Device Settings")
+    print("  3. Tap 'Device Info' to see the IP address")
+    print()
+    print("-" * 60)
+    print()
+    
     # Get username and password first
     print("First, we need your camera credentials:")
     username = input("Camera username [admin]: ").strip() or "admin"
@@ -239,6 +332,11 @@ def main():
         if proceed != 'y' and proceed != 'yes':
             print("Cancelled.")
             return
+    
+    # Save credentials immediately to config.json (before any scanning)
+    print("\n💾 Saving credentials to config.json...")
+    update_config(username=username, password=password)
+    print("Credentials saved. You won't need to enter them again if you run this script later.\n")
     
     print("\nChoose scanning method:")
     print("1. Automatic network scan (scans entire local network)")
@@ -270,7 +368,7 @@ def main():
         if not found_cameras:
             print("\n✗ No ONVIF cameras found on the network.")
             print("\nTrying manual scan...")
-            found_camera = manual_ip_scan()
+            found_camera = manual_ip_scan(username=username, password=password)
         else:
             print(f"\n✓ Found {len(found_cameras)} ONVIF camera(s):")
             print()
@@ -292,7 +390,7 @@ def main():
     
     elif choice == "2":
         # Manual IP entry
-        found_camera = manual_ip_scan()
+        found_camera = manual_ip_scan(username=username, password=password)
     
     else:
         # Show instructions
@@ -300,9 +398,34 @@ def main():
         print("MANUAL SETUP INSTRUCTIONS")
         print("=" * 60)
         print()
-        print("To configure your camera manually:")
-        print("1. Find your camera's IP address (router admin, Tapo app, etc.)")
-        print("2. Edit config.json with your camera details")
+        print("HOW TO FIND CAMERA SETTINGS IN TAPO APP:")
+        print()
+        print("  📍 FIND IP ADDRESS:")
+        print("  1. Open Tapo app → Tap on your camera (Live View)")
+        print("  2. Tap gear icon (⚙️) at top right → Device Settings")
+        print("  3. Tap 'Device Info' → View IP address")
+        print()
+        print("  🔐 SET USERNAME/PASSWORD (Camera Account):")
+        print("  1. Open Tapo app → Tap on your camera (Live View)")
+        print("  2. Tap gear icon (⚙️) at top right → Device Settings")
+        print("  3. Tap 'Advanced Settings' → 'Camera Account'")
+        print("  4. Create or view username and password")
+        print("     (This is DIFFERENT from your Tapo account login!)")
+        print()
+        print("-" * 60)
+        print()
+        print("MANUAL CONFIGURATION:")
+        print("1. Use the steps above to find IP address and set Camera Account")
+        print("2. Edit config.json with your camera details:")
+        print("   {")
+        print('     "camera": {')
+        print('       "host": "YOUR_CAMERA_IP",')
+        print('       "port": 2020,')
+        print('       "username": "YOUR_CAMERA_ACCOUNT_USERNAME",')
+        print('       "password": "YOUR_CAMERA_ACCOUNT_PASSWORD"')
+        print("     }")
+        print("   }")
+        print()
         print("3. Or run: python tapo_camera.py <IP> <PORT> <USERNAME> <PASSWORD>")
         print()
         return
@@ -324,7 +447,33 @@ def main():
         print("  - Camera and computer are on the same network")
         print("  - ONVIF is enabled on the camera")
         print("  - Camera credentials are correct")
-        print("\nYou can also manually edit config.json with your camera details.")
+        print()
+        
+        # Offer to save manually entered details
+        manual_save = input("Would you like to manually enter camera IP and save configuration? (y/n): ").strip().lower()
+        if manual_save == 'y' or manual_save == 'yes':
+            print()
+            manual_ip = input("Enter camera IP address: ").strip()
+            if manual_ip:
+                try:
+                    ipaddress.IPv4Address(manual_ip)
+                    manual_port = input("Enter camera port [2020]: ").strip() or "2020"
+                    try:
+                        manual_port = int(manual_port)
+                        update_config(manual_ip, manual_port, username, password)
+                        print("\n✓ Configuration saved with manually entered details!")
+                        print("You can now run: python tapo_camera.py")
+                    except ValueError:
+                        print("Invalid port number. Configuration not saved.")
+                except:
+                    print("Invalid IP address. Configuration not saved.")
+            else:
+                print("No IP entered. Configuration not saved.")
+        else:
+            # Still save credentials even if user doesn't want to enter IP
+            print("\nSaving credentials to config.json (you can add IP manually later)...")
+            update_config(username=username, password=password)
+            print("You can manually edit config.json to add the camera IP address.")
 
 
 if __name__ == "__main__":

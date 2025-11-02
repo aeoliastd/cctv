@@ -1,10 +1,10 @@
+#!/usr/bin/env python3
 """
 Module for connecting to Tapo C211 WiFi camera via ONVIF and displaying video feed.
 """
 
 import cv2
 from onvif import ONVIFCamera
-import threading
 import time
 import json
 import os
@@ -52,7 +52,7 @@ class TapoCamera:
             print(f"Using profile: {profile.Name}")
             
             # Get stream URI
-            stream_setup = self.camera.create_type('GetStreamUri')
+            stream_setup = self.media_service.create_type('GetStreamUri')
             stream_setup.ProfileToken = profile.token
             stream_setup.StreamSetup = {
                 'Stream': 'RTP-Unicast',
@@ -62,12 +62,14 @@ class TapoCamera:
             stream_uri_response = self.media_service.GetStreamUri(stream_setup)
             self.stream_uri = stream_uri_response.Uri
             
-            # Add credentials to RTSP URI if not present
+            # Add credentials to RTSP URI if not already present
             if self.username and self.password:
                 if '://' in self.stream_uri:
                     protocol = self.stream_uri.split('://')[0]
                     uri_part = self.stream_uri.split('://')[1]
-                    self.stream_uri = f"{protocol}://{self.username}:{self.password}@{uri_part}"
+                    # Check if credentials are already in the URI
+                    if '@' not in uri_part:
+                        self.stream_uri = f"{protocol}://{self.username}:{self.password}@{uri_part}"
             
             print(f"Stream URI obtained: {self.stream_uri[:50]}...")
             return True
